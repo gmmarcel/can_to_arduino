@@ -1,12 +1,12 @@
 import can
 from can.bus import BusState
+from can import Bus, Logger
 
 import sys
 import os
 import config
 import threading
 from consolemenu import *
-#from consolemenu import *
 from consolemenu.items import *
 
 class Service():
@@ -15,7 +15,6 @@ class Service():
         t1 = threading.Thread(target=self.receive)
         t1.daemon = True
         t1.start()
-        
 
 
     def config_interface(self):
@@ -92,6 +91,25 @@ class Service():
         #menu.join()
         self.menu.show(True)
 
+    def split_data(self, msg):
+        #Timestamp -> msg.timestamp
+        #ID -> msg.arbitration_id
+        #Extended ID -> msg.is_extended_id (TRUE/FALSE)
+        #DLC -> msg.dlc
+        #Channel -> msg.channel
+        data_string = ''
+        if msg.dlc > 0:
+            data_string = ' '.join('{:02X}'.format(x) for x in msg.data)
+        x = data_string.split(" ")
+        x2 = x[0].split()
+        print(x2)
+        #pass
+    
+    def log_all(self, msg):
+        #Log all incoming and outgoing data to a file
+        logger = Logger('log_can4')
+        logger(msg)
+
     def receive(self):
         #Receives all messages and prints them to the console until Ctrl+C is pressed.
 
@@ -105,12 +123,17 @@ class Service():
                 while True:
                     msg = bus.recv(1)
                     if msg is not None:
-                        print(msg)
+                        self.split_data(msg)
+                        #self.log_all(msg)
+                        #pass
 
             except KeyboardInterrupt:
                 pass  # exit normally
 
     def send(self):
+        pass
+    
+    def convert_ascii(self):
         pass
     def save_csv(self):
         pass
@@ -125,6 +148,7 @@ if __name__ == "__main__":
     #t1 = threading.Thread(target=receive)
     #t1.daemon = True
     #t1.start()
+    #logger = Logger('log_can4')
     can = Service()
 
     can.main_menu()
