@@ -1,4 +1,6 @@
 import can
+from can.interface import Bus
+from can.message import Message
 from can.bus import BusState
 from can import Bus, Logger
 
@@ -6,16 +8,18 @@ import sys
 import os
 import config
 import threading
+from datetime import datetime
 from consolemenu import *
 from consolemenu.items import *
 
 class Service():
 
     def __init__(self):
-        t1 = threading.Thread(target=self.receive)
-        t1.daemon = True
-        t1.start()
-
+        #print("started")
+        r = threading.Thread(target=self.receive)
+        r.daemon = True
+        r.start()
+        pass
 
     def config_interface(self):
         #Dialog to start script
@@ -58,9 +62,36 @@ class Service():
         
         #return can_bustype, can_appname, can_channel, can_bitrate, filename
 
-    def main(self):
+    def last_event(self):
         pass
-    def main_menu(self):
+    def send(self, i):
+        self.main_menu(False)
+        self.command = config.command[i]
+
+        with Bus(
+            bustype='vector', app_name='CANalyzer', channel=1, bitrate=500000
+        ) as bus:
+
+            msg = Message(
+                arbitration_id=0x10, dlc=1, data=[self.command], is_extended_id=False
+                )
+
+            try:
+                bus.send(msg)
+                print("Message sent on"+bus.channel_info)
+                print("Command: "+str(msg))
+            except can.CanError:
+                print("Message NOT sent")
+
+    def status_menu(self, data_dec):
+        self.menu = ConsoleMenu(
+            title="Daten",
+            subtitle=data_dec
+        )
+        #self.main_menu(False)
+        #self.menu.show(True)
+
+    def main_menu(self, face):
         # Create the root menu
         self.menu = ConsoleMenu(
             title="Heusel Innovations GmbH",
@@ -68,10 +99,11 @@ class Service():
             prologue_text="info text"
         )
 
-        self.f_status        = FunctionItem("Status", self.send,)
-        self.f_last_event    = FunctionItem("Read last Event", Screen().input, ["Enter the function: "])
-        self.f_temperature   = FunctionItem("Temperature", Screen().input, ["Enter the function: "])
-        self.f_reset         = FunctionItem("Reset", Screen().input, ["Enter the function: "])
+        self.f_status        = FunctionItem("Status", self.send, args=[0])
+        self.f_last_event    = FunctionItem("Temperature", self.send, args=[1])
+        self.f_temperature   = FunctionItem("Other Sensors", self.send, args=[2])
+        self.f_sensor        = FunctionItem("Read last Event", self.send, args=[3])
+        self.f_reset         = FunctionItem("Reset", self.send, args=[4])
         self.f_settings      = FunctionItem("Configurate CAN", self.config_interface)
 
 
@@ -83,36 +115,77 @@ class Service():
         self.menu.append_item(self.f_status)
         self.menu.append_item(self.f_last_event)
         self.menu.append_item(self.f_temperature)
+        self.menu.append_item(self.f_sensor)
         self.menu.append_item(self.f_reset)
         self.menu.append_item(self.f_settings)
 
         # Show the menu
         #menu.start()
         #menu.join()
-        self.menu.show(True)
+        self.menu.show(face)
 
-    def split_data(self, msg):
+    def check_data(self,msg):
+        #print("check_data")
+        data_string = ''
+        if msg.dlc > 0:
+            data_string = ' '.join('{:02X}'.format(x) for x in msg.data)
+        hex_data = data_string.split(" ")
+
+        if(hex_data[0].lower() == "0a"):
+            pass
+        else:
+            #print("-------")
+            self.convert_hex(msg, hex_data)
+
+    def convert_hex(self, msg, data):
         #Timestamp -> msg.timestamp
         #ID -> msg.arbitration_id
         #Extended ID -> msg.is_extended_id (TRUE/FALSE)
         #DLC -> msg.dlc
         #Channel -> msg.channel
-        data_string = ''
-        if msg.dlc > 0:
-            data_string = ' '.join('{:02X}'.format(x) for x in msg.data)
-        x = data_string.split(" ")
-        x2 = x[0].split()
-        print(x2)
+        #data_formatted = []
+        #print("----------")
+        print(msg)
+        data_dec = []
+        for i in data:
+            conv = int(i,16)
+            data_dec.append(conv)
+        print(data_dec)
+        self.status_menu(data_dec)
+
+
+        
+        #print(data_string)
+        #x2 = hex_data[0].split()
+        #x3 = int(x2[0],16)
+        #if (x3 == 30):
+        #    for i in x:
+        #        conv = int(i,16)
+        #        data_formatted.append(conv)
+
+            #print(data_string)
+
         #pass
     
     def log_all(self, msg):
         #Log all incoming and outgoing data to a file
-        logger = Logger('log_can4')
-        logger(msg)
+        msg = msg
+        log_file = open("log_can.txt","a")#append mode
+        # datetime object containing current date and time
+        now = datetime.now()
+        # dd/mm/YY H:M:S
+        dt_string = now.strftime("%Y/%m/%d %H:%M:%S")
+
+        log_file.write(dt_string+" --- "+str(msg)+"\n")
+        log_file.close()
+        #print("closed file"+dt_string)
+
+    def status_msg(self):
+        print("Status")
 
     def receive(self):
         #Receives all messages and prints them to the console until Ctrl+C is pressed.
-
+        #log_file = open("log_can.txt","a")#append mode
         with can.interface.Bus(
             bustype='vector', app_name='CANalyzer', channel=1, bitrate=500000
         ) as bus:
@@ -123,16 +196,16 @@ class Service():
                 while True:
                     msg = bus.recv(1)
                     if msg is not None:
-                        self.split_data(msg)
-                        #self.log_all(msg)
+                        #print("schleife")
+                        self.log_all(msg)
+                        #print("check_data")
+                        self.check_data(msg)
+                        #print(msg)
                         #pass
 
             except KeyboardInterrupt:
                 pass  # exit normally
 
-    def send(self):
-        pass
-    
     def convert_ascii(self):
         pass
     def save_csv(self):
@@ -140,6 +213,8 @@ class Service():
     def cleanup(self):
         pass
     def print(self):
+        pass
+    def main(self):
         pass
 
 
@@ -150,5 +225,5 @@ if __name__ == "__main__":
     #t1.start()
     #logger = Logger('log_can4')
     can = Service()
-
-    can.main_menu()
+    can.main()
+    can.main_menu(True)
