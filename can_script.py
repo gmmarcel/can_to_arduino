@@ -7,6 +7,8 @@ from can import Bus, Logger
 import sys
 import os
 import config
+import copy 
+from queue import Queue 
 import threading
 from datetime import datetime
 from consolemenu import *
@@ -16,9 +18,9 @@ class Service():
 
     def __init__(self):
         #print("started")
-        r = threading.Thread(target=self.receive)
-        r.daemon = True
-        r.start()
+        #r = threading.Thread(target=self.receive)
+        #r.daemon = True
+        #r.start()
         pass
 
     def config_interface(self):
@@ -67,7 +69,7 @@ class Service():
     def send(self, i):
         self.main_menu(False)
         self.command = config.command[i]
-
+        print("test_send_data")
         with Bus(
             bustype='vector', app_name='CANalyzer', channel=1, bitrate=500000
         ) as bus:
@@ -83,23 +85,23 @@ class Service():
             except can.CanError:
                 print("Message NOT sent")
 
-    def status_menu(self, data_dec):
-        self.menu = ConsoleMenu(
-            title="Daten",
-            subtitle=data_dec
-        )
-        #self.main_menu(False)
-        #self.menu.show(True)
+    def status(self, i, in_q):
+        print("Send Command")
+        self.send(i)
+        data = in_q.get()
+        print(data)
 
-    def main_menu(self, face):
+
+    def main_menu(self, in_q):
         # Create the root menu
+        #out_q = out_q
         self.menu = ConsoleMenu(
             title="Heusel Innovations GmbH",
             subtitle="CAN Read and Send Data",
             prologue_text="info text"
         )
 
-        self.f_status        = FunctionItem("Status", self.send, args=[0])
+        self.f_status        = FunctionItem("Status", self.status, args=[0, in_q])
         self.f_last_event    = FunctionItem("Temperature", self.send, args=[1])
         self.f_temperature   = FunctionItem("Other Sensors", self.send, args=[2])
         self.f_sensor        = FunctionItem("Read last Event", self.send, args=[3])
@@ -120,11 +122,11 @@ class Service():
         self.menu.append_item(self.f_settings)
 
         # Show the menu
-        #menu.start()
-        #menu.join()
-        self.menu.show(face)
+        #self.menu.start()
+        #self.menu.join()
+        #self.menu.show(True)
 
-    def check_data(self,msg):
+    def check_data(self, msg, out_q):
         #print("check_data")
         data_string = ''
         if msg.dlc > 0:
@@ -135,9 +137,9 @@ class Service():
             pass
         else:
             #print("-------")
-            self.convert_hex(msg, hex_data)
+            self.convert_hex(msg, hex_data, out_q)
 
-    def convert_hex(self, msg, data):
+    def convert_hex(self, msg, data, out_q):
         #Timestamp -> msg.timestamp
         #ID -> msg.arbitration_id
         #Extended ID -> msg.is_extended_id (TRUE/FALSE)
@@ -146,12 +148,13 @@ class Service():
         #data_formatted = []
         #print("----------")
         print(msg)
+        out_q.put(copy.deepcopy(msg))
         data_dec = []
         for i in data:
             conv = int(i,16)
             data_dec.append(conv)
         print(data_dec)
-        self.status_menu(data_dec)
+        #self.status_menu(data_dec)
 
 
         
@@ -183,10 +186,10 @@ class Service():
     def status_msg(self):
         print("Status")
 
-    def receive(self):
+    def receive(self, out_q):
         #Receives all messages and prints them to the console until Ctrl+C is pressed.
         #log_file = open("log_can.txt","a")#append mode
-        with can.interface.Bus(
+        with Bus(
             bustype='vector', app_name='CANalyzer', channel=1, bitrate=500000
         ) as bus:
             # set to read-only, only supported on some interfaces
@@ -199,7 +202,7 @@ class Service():
                         #print("schleife")
                         self.log_all(msg)
                         #print("check_data")
-                        self.check_data(msg)
+                        self.check_data(msg, out_q)
                         #print(msg)
                         #pass
 
@@ -225,5 +228,13 @@ if __name__ == "__main__":
     #t1.start()
     #logger = Logger('log_can4')
     can = Service()
-    can.main()
-    can.main_menu(True)
+
+    # Create the shared queue and launch both threads 
+    q = Queue() 
+    t1 = threading.Thread(target = can.receive, args =(q, )) 
+    t2 = threading.Thread(target = can.main_menu, args =(q, )) 
+    t1.start() 
+    t2.start()
+
+    #can.main()
+    #can.main_menu(True)
